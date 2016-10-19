@@ -13,90 +13,37 @@ use Getopt::Long
 
 use constant REQLENLIMIT => 1<<16;  # Max. 64KB
 
-my %reason = (
-    200 => 'OK',
-    301 => 'Moved Permanently',
-    302 => 'Found',
-    303 => 'See Other',
-    400 => 'Bad Request',
-    401 => 'Unauthorized',
-    402 => 'Payment Required',
-    403 => 'Forbidden',
-    404 => 'Not Found',
-    405 => 'Method Not Allowed',
-    406 => 'Not Acceptable',
-    407 => 'Proxy Authentication Required',
-    408 => 'Request Time-out',
-    409 => 'Conflict',
-    410 => 'Gone',
-    411 => 'Length Required',
-    412 => 'Precondition Failed',
-    413 => 'Request Entity Too Large',
-    414 => 'Request-URI Too Large',
-    415 => 'Unsupported Media Type',
-    416 => 'Requested range not satisfiable',
-    417 => 'Expectation Failed',
-    500 => 'Internal Server Error',
-    501 => 'Not Implemented',
-    502 => 'Bad Gateway',
-    503 => 'Service Unavailable',
-    504 => 'Gateway Time-out',
-    505 => 'HTTP Version not supported',
-);
-
-my $www  = $ENV{'HTTWIXT_URI'} || 'http://localhost';
+my $uri_base = $ENV{'HTTWIXT_URI_BASE'} || 'http://localhost';
 my $root = $ENV{'HTTWIXT_ROOT'} || '/var/local/httwixt';
 my ($pub, $prv) = qw(public private);
 my $red  = '302';
 
 GetOptions(
-    'u|uri-base=s' => \$www,
-    'r|root=s' => \$root,
-    'p|public=s' => \$pub,
-    'q|private=s' => \$prv,
-    's|redirect-status=i' => \$red,
+    'u|uri-base=s' => \$uri_base,   # http://example.com/foo
+    'r|root=s' => \$root,           # /path/to/root/directory
+    'p|public=s' => \$pub,          # public -or- /path/to/public/directory
+    'q|private=s' => \$prv,         # private -or- /path/to/private/directory
+    's|redirect-status=i' => \$red, # 302
 ) or usage;
 
+# Make sure we have absolute paths to the public and private directories
 $pub = "$root/$pub" if $pub !~ m{^/};
 $prv = "$root/$prv" if $prv !~ m{^/};
 
+# Make sure they all exist
 fatal "no such directory: $root" if !-d $root;
 fatal "no such directory: $pub"  if !-d $pub;
 fatal "no such directory: $prv"  if !-d $prv;
 
+# Redirects must use a 3xx status code
 usage if $red !~ /^3[0-9][0-9]$/;
 
-my ($hash, $url, $tpl);
-eval {
-    # Read the HTTP request
-    my ($buf, $dig);
-    my $n = read(STDIN, $buf, REQLENLIMIT) or die;
-    die if $n == REQLENLIMIT;
-    my $req = HTTP::Request->parse($buf);
-    die if $req->method ne 'GET';
-    my $path = $req->uri->path;
-    die if $path !~ m{/(.+)/([^/\s]+)$};
-    my ($coll, $file) = ($1, $2);
-    # Publish the desired file under a "random" URL
-    die if !-e "$prv/$coll/$file";
-    foreach (qw(SHA-256 SHA-1 MD5)) {
-        last if $dig = eval { Digest->new($_) }
-    }
-    die if !$dig;
-    $hash = substr $dig->add(time, $$, rand)->hexdigest, 0, 32;
-    die if !mkdir "$pub/$hash"
-        or !symlink "$prv/$coll/$file", "$pub/$hash/$file";
-    my $tfile = find_template($coll, $file);
-    if (defined $tfile) {
-        open my $fh, '<', $tfile or die;
-        local $/;
-        $tpl = <$fh>;
-        die if !defined $tpl;
-    }
-    $url = sprintf '%s/%s/%s', $www, $hash, $file;
-    print STDERR "httwixt: published $prv$path as $pub/$hash/$file\n";
+my %reason = http_reasons();
+my ($hash, $url, $tpl) = eval { 
+    publish(read_request());
 };
 if (defined $tpl) {
+    # Return HTML with the temporary URL embedded in it
     my $html = process_template(\$tpl, {
         url => $url,
         root => $root,
@@ -107,13 +54,53 @@ if (defined $tpl) {
     send_response(200, \$html);
 }
 elsif (defined $url) {
+    # Redirect to the desired resource
     send_response($red, { Location => $url }, \'<html>Found</html>');
 }
 else {
+    # No such resource
     send_response(404, \'<html>Not found</html>');
 }
 
-sub find_template {
+# --- Functions
+
+sub read_request {
+    my $buf;
+    my $n = read(STDIN, $buf, REQLENLIMIT) or die;
+    die if $n == REQLENLIMIT;
+    my $req = HTTP::Request->parse($buf);
+    die if $req->method ne 'GET';
+    my $path = $req->uri->path;
+}
+
+sub publish {
+    my ($path) = @_;
+    # Read the HTTP request and find the desired file
+    die if $path !~ m{/(.+)/([^/\s]+)$};
+    my ($coll, $file) = ($1, $2);
+    die if !-e "$prv/$coll/$file";
+    # Create a "random" URL and published the desired file
+    $hash = digest();
+    my ($src, $dst) = ("$prv/$coll", "$pub/$hash");
+    die if !mkdir $dst;
+    die if !symlink "$src/$file", "$dst/$file";
+    # Find a template for the HTTP response
+    $tpl = template($coll, $file);
+    $url = "$uri_base/$hash/$file";
+    print STDERR "httwixt: published $prv$path as $pub/$hash/$file\n";
+    return ($hash, $url, $tpl);
+}
+
+sub digest {
+    my $dig;
+    foreach (qw(SHA-256 SHA-1 MD5)) {
+        last if $dig = eval { Digest->new($_) }
+    }
+    die if !$dig;
+    return substr $dig->add(time, $$, rand)->hexdigest, 0, 32;
+}
+
+sub template {
     my ($coll, $file) = @_;
     my $dir = "$prv/$coll";
     (my $base = $file) =~ s/\.([^.]+)$//;
@@ -121,7 +108,12 @@ sub find_template {
         glob("$dir/$base.html"),
         glob("$dir/default-template.html"),
     );
-    return $tfile;
+    return if !defined $tfile;
+    open my $fh, '<', $tfile or die;
+    local $/;
+    my $tpl = <$fh>;
+    die if !defined $tpl;
+    return $tpl;
 }
 
 sub process_template {
@@ -155,3 +147,35 @@ sub send_response {
     print $$cref;
 }
 
+sub http_reasons {
+    return (
+        200 => 'OK',
+        301 => 'Moved Permanently',
+        302 => 'Found',
+        303 => 'See Other',
+        400 => 'Bad Request',
+        401 => 'Unauthorized',
+        402 => 'Payment Required',
+        403 => 'Forbidden',
+        404 => 'Not Found',
+        405 => 'Method Not Allowed',
+        406 => 'Not Acceptable',
+        407 => 'Proxy Authentication Required',
+        408 => 'Request Time-out',
+        409 => 'Conflict',
+        410 => 'Gone',
+        411 => 'Length Required',
+        412 => 'Precondition Failed',
+        413 => 'Request Entity Too Large',
+        414 => 'Request-URI Too Large',
+        415 => 'Unsupported Media Type',
+        416 => 'Requested range not satisfiable',
+        417 => 'Expectation Failed',
+        500 => 'Internal Server Error',
+        501 => 'Not Implemented',
+        502 => 'Bad Gateway',
+        503 => 'Service Unavailable',
+        504 => 'Gateway Time-out',
+        505 => 'HTTP Version not supported',
+    );
+}
