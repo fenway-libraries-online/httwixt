@@ -17,31 +17,15 @@ my $uri_base = $ENV{'HTTWIXT_URI_BASE'} || 'http://localhost';
 my $root = $ENV{'HTTWIXT_ROOT'} || '/var/local/httwixt';
 my ($pub, $prv) = qw(public private);
 my $red  = '302';
+my $verbose;
 
-GetOptions(
-    'u|uri-base=s' => \$uri_base,   # http://example.com/foo
-    'r|root=s' => \$root,           # /path/to/root/directory
-    'p|public=s' => \$pub,          # public -or- /path/to/public/directory
-    'q|private=s' => \$prv,         # private -or- /path/to/private/directory
-    's|redirect-status=i' => \$red, # 302
-) or usage;
+process_options();
 
-# Make sure we have absolute paths to the public and private directories
-$pub = "$root/$pub" if $pub !~ m{^/};
-$prv = "$root/$prv" if $prv !~ m{^/};
-
-# Make sure they all exist
-fatal "no such directory: $root" if !-d $root;
-fatal "no such directory: $pub"  if !-d $pub;
-fatal "no such directory: $prv"  if !-d $prv;
-
-# Redirects must use a 3xx status code
-usage if $red !~ /^3[0-9][0-9]$/;
-
-my %reason = http_reasons();
 my ($hash, $url, $tpl) = eval { 
-    publish(read_request());
+    my $req = read_request();
+    publish($req);
 };
+
 if (defined $tpl) {
     # Return HTML with the temporary URL embedded in it
     my $html = process_template(\$tpl, {
@@ -63,6 +47,26 @@ else {
 }
 
 # --- Functions
+
+sub process_options {
+    GetOptions(
+        'u|uri-base=s' => \$uri_base,   # http://example.com/foo
+        'r|root=s' => \$root,           # /path/to/root/directory
+        'p|public=s' => \$pub,          # public -or- /path/to/public/directory
+        'q|private=s' => \$prv,         # private -or- /path/to/private/directory
+        's|redirect-status=i' => \$red, # 302
+        'v|verbose' => \$verbose,
+    ) or usage;
+    # Make sure we have absolute paths to the public and private directories
+    $pub = "$root/$pub" if $pub !~ m{^/};
+    $prv = "$root/$prv" if $prv !~ m{^/};
+    # Make sure they all exist
+    fatal "no such directory: $root" if !-d $root;
+    fatal "no such directory: $pub"  if !-d $pub;
+    fatal "no such directory: $prv"  if !-d $prv;
+    # Redirects must use a 3xx status code
+    usage if $red !~ /^3[0-9][0-9]$/;
+}
 
 sub read_request {
     my $buf;
@@ -87,7 +91,7 @@ sub publish {
     # Find a template for the HTTP response
     $tpl = template($coll, $file);
     $url = "$uri_base/$hash/$file";
-    print STDERR "httwixt: published $prv$path as $pub/$hash/$file\n";
+    print STDERR "httwixt: published $prv$path as $pub/$hash/$file\n" if $verbose;
     return ($hash, $url, $tpl);
 }
 
@@ -108,7 +112,7 @@ sub template {
         glob("$dir/$base.html"),
         glob("$dir/default-template.html"),
     );
-    return if !defined $tfile;
+    return if !defined $tfile || !-e $tfile;
     open my $fh, '<', $tfile or die;
     local $/;
     my $tpl = <$fh>;
@@ -133,6 +137,7 @@ sub send_response {
         die;
     }
     my $clen = length $$cref;
+    my %reason = http_reasons();
     my $reason = $reason{$status} || 'mumble';
     my @out = (
         "HTTP/1.0 $status $reason",
