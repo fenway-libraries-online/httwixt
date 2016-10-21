@@ -28,10 +28,11 @@ if (!defined caller) {
     my $verbose;
     my $cls;
     GetOptions(
-        'd|daemon' => sub { $cls = __PACKAGE__ . '::Daemon' },
-        'i|inetd'  => sub { $cls = __PACKAGE__ . '::Inetd'  },
+        'D|daemon' => sub { $cls = __PACKAGE__ . '::Daemon' },
+        'I|inetd'  => sub { $cls = __PACKAGE__ . '::Inetd'  },
         'C|cgi'    => sub { $cls = __PACKAGE__ . '::CGI'    },
         'F|fcgi'   => sub { $cls = __PACKAGE__ . '::FCGI'   },
+        'T|term'   => sub { $cls = __PACKAGE__ . '::Term'   },
         'c|config-file=s' => \$config_file,
         'u|uri-base=s' => \$uri_base,
         'r|root=s' => \$root,
@@ -180,12 +181,21 @@ sub template {
     return $tpl;
 }
 
-sub make_header {
+sub send_response {
     my $self = shift;
-    my ($status, $header, $cref) = @_;
+    my ($status, $header, $cref) = $self->response_params(@_);
+    my @header = $self->make_header($status, $header, $cref),
+    my $crlf = $self->crlf;
+    print $_, $crlf for @header, '';
+    print $$cref;
+}
+
+sub make_header {
+    my ($self, $status, $header, $cref) = @_;
     my $clen = length $$cref;
     my $ctype = 'text/html';
     my @out = (
+        $self->status($status),
         "Content-Type: $ctype",
         "Content-Length: $clen",
     );
@@ -210,6 +220,10 @@ sub response_params {
     return ($status, $header, $cref);
 }
 
+sub crlf { "\x0d\x0a" }
+
+sub status { "Status: $_[1]" }
+
 # ------------------------------------------------------------------------------
 
 package HTTP::Twixt::Term;
@@ -226,17 +240,9 @@ sub read_request {
     return $path;
 }
 
-sub send_response {
-    my $self = shift;
-    my ($status, $header, $cref) = $self->response_params(@_);
-    my @out = (
-        "HTTP/1.0 $status",
-        $self->make_header($status, $header, $cref),
-        '',
-    );
-    print $_, "\n" for @out;
-    print $$cref;
-}
+sub status { "HTTP/1.0 $_[1]" }
+
+sub crlf { "\n" }
 
 # ------------------------------------------------------------------------------
 
@@ -256,17 +262,7 @@ sub read_request {
     my $path = $req->uri->path;
 }
 
-sub send_response {
-    my $self = shift;
-    my ($status, $header, $cref) = $self->response_params(@_);
-    my @out = (
-        "HTTP/1.0 $status",
-        $self->make_header($status, $header, $cref),
-        '',
-    );
-    print $_, "\x0d\x0a" for @out;
-    print $$cref;
-}
+sub status { "HTTP/1.0 $_[1]" }
 
 # ------------------------------------------------------------------------------
 
@@ -298,18 +294,6 @@ sub process_http_request {
     $self->process;
 }
 
-sub send_response {
-    my $self = shift;
-    my ($status, $header, $cref) = $self->response_params(@_);
-    my @out = (
-        "HTTP/1.0 $status",
-        $self->make_header($status, $header, $cref),
-        '',
-    );
-    print $_, "\n" for @out;
-    print $$cref;
-}
-
 # ------------------------------------------------------------------------------
 
 package HTTP::Twixt::FCGI;
@@ -327,18 +311,6 @@ sub read_request {
     my ($self) = @_;
     my $q = $self->{'cgi'} = CGI->new;
     return $q->path_info || '/';
-}
-
-sub send_response {
-    my $self = shift;
-    my ($status, $header, $cref) = $self->response_params(@_);
-    my @out = (
-        "Status: $status",
-        $self->make_header($status, $header, $cref),
-        '',
-    );
-    print $_, "\x0d\x0a" for @out;
-    print $$cref;
 }
 
 # ------------------------------------------------------------------------------
