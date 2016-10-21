@@ -2,3 +2,5 @@
 /old
 /example/public/*
 /build
+*.tar
+*.tar.gz

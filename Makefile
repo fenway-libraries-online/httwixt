@@ -1,5 +1,7 @@
 include config.mk
 
+VERSION = 0.01
+
 all: build/twixt build/twixt.cgi build/twixt.fcgi
 
 install-bin: build/twixt
@@ -35,6 +37,17 @@ build/twixt.fcgi: Twixt.pm
 	install $< $@
 
 clean:
-	rm -Rf build
+	rm -Rf build dist httwixt-*
 
-.PHONY: clean install-bin install-cgi install-fcgi install-pm
+dist: httwixt-$(VERSION).tar.gz
+
+httwixt-$(VERSION).tar.gz: httwixt-$(VERSION)
+	tar -czf $@ --exclude=old $<
+	rm -Rf $<
+
+httwixt-$(VERSION): clean
+	install -d dist
+	cp -rl `ls . | fgrep -v -w dist` dist/
+	mv dist httwixt-$(VERSION)
+
+.PHONY: install-bin install-cgi install-fcgi install-pm clean dist
