@@ -1,3 +1,4 @@
 *.old
 /old
 /example/public/*
+/build
