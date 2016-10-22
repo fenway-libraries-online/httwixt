@@ -90,11 +90,11 @@ sub process {
     }
     elsif (defined $url) {
         # Redirect to the desired resource
-        $self->send_response("$red Found", { Location => $url }, \'<html>Found</html>');
+        $self->send_response("$red Found", { Location => $url }, \"<html>Found</html>\n");
     }
     else {
         # No such resource
-        $self->send_response('404 Not Found', \'<html>Not found</html>');
+        $self->send_response('404 Not Found', \"<html>Not found</html>\n");
     }
 }
 
@@ -170,8 +170,8 @@ sub template {
     };
     my $dir = "$prv/$coll";
     my ($tfile) = (
-        glob("$dir/$file.html"),
-        glob("$dir/default-template.html"),
+        glob("$dir/$file.httwixt"),
+        glob("$dir/httwixt"),
     );
     return if !defined $tfile || !-e $tfile;
     open my $fh, '<', $tfile or die;
