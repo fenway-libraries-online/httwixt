@@ -1,4 +1,4 @@
-PREFIX = /usr/local
-BIN = $(PREFIX)/bin
-CGIBIN = $(PREFIX)/cgi-bin
-PM = $(PREFIX)/lib/perl5
+PREFIX := $(shell perl -MConfig -e 'print "$$Config{siteprefix}\n"')
+BIN := $(shell perl -MConfig -e 'print "$$Config{installsitebin}\n"')
+PM := $(shell perl -MConfig -e 'print "$$Config{installsitelib}\n"')
+CGIBIN := $(PREFIX)/cgi-bin
