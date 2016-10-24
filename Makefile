@@ -1,7 +1,5 @@
 include config.mk
 
-VERSION = 0.01
-
 all: build/twixt build/twixt.cgi build/twixt.fcgi
 
 install-bin: build/twixt

@@ -12,6 +12,8 @@ use Digest;
 use Getopt::Long
     qw(:config posix_default gnu_compat require_order bundling no_ignore_case);
 
+use constant VERSION => '0.02';
+
 my $reqlenlimit = 1<<16;  # Max. 64KB
 
 if (!defined caller) {
@@ -20,6 +22,8 @@ if (!defined caller) {
     #   - FastCGI
     #   - daemon
     #   - inetd/xinetd
+    print(VERSION, "\n"), exit 0
+        if @ARGV == 1 && $ARGV[0] eq '--version';
     my $uri_base = $ENV{'HTTWIXT_URI_BASE'} || 'http://localhost';
     my $root = $ENV{'HTTWIXT_ROOT'} || '/var/local/httwixt';
     my ($public_dir, $private_dir) = qw(public private);
