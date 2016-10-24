@@ -1,16 +1,16 @@
 include config.mk
 
-all: build/twixt build/twixt.cgi build/twixt.fcgi
+all: build/httwixt build/httwixt.cgi build/httwixt.fcgi
 
-install-bin: build/twixt
+install-bin: build/httwixt
 	install -d $(BIN)
 	install $< $(BIN)/
 
-install-cgi: build/twixt.cgi
+install-cgi: build/httwixt.cgi
 	install -d $(CGIBIN)
 	install $< $(CGIBIN)/
 
-install-fcgi: build/twixt.fcgi
+install-fcgi: build/httwixt.fcgi
 	install -d $(CGIBIN)
 	install $< $(CGIBIN)/
 
@@ -22,15 +22,15 @@ build/Twixt.pm: Twixt.pm
 	@install -d build
 	install $< $@
 
-build/twixt: Twixt.pm
+build/httwixt: Twixt.pm
 	@install -d build
 	install $< $@
 
-build/twixt.cgi: Twixt.pm
+build/httwixt.cgi: Twixt.pm
 	@install -d build
 	install $< $@
 
-build/twixt.fcgi: Twixt.pm
+build/httwixt.fcgi: Twixt.pm
 	@install -d build
 	install $< $@
 
