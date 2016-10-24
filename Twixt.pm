@@ -12,7 +12,7 @@ use Digest;
 use Getopt::Long
     qw(:config posix_default gnu_compat require_order bundling no_ignore_case);
 
-use constant VERSION => '0.02';
+use constant VERSION => '0.03';
 
 my $reqlenlimit = 1<<16;  # Max. 64KB
 
