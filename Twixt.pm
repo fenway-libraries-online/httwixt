@@ -25,7 +25,7 @@ if (!defined caller) {
     print(VERSION, "\n"), exit 0
         if @ARGV == 1 && $ARGV[0] eq '--version';
     my $uri_base = $ENV{'HTTWIXT_URI_BASE'} || 'http://localhost';
-    my $root = $ENV{'HTTWIXT_ROOT'} || '/var/local/httwixt';
+    my $root = $ENV{'HTTWIXT_ROOT'} || $ENV{'DOCUMENT_ROOT'} || '/var/local/httwixt';
     my ($public_dir, $private_dir) = qw(public private);
     my $redirect_status  = '302';
     my $config_file;
@@ -72,6 +72,21 @@ sub new {
     bless { @_ }, $cls;
 }
 
+sub read_config_file {
+    my ($self, $f) = @_;
+    my %config;
+    open my $fh, '<', $f or die "open $f: $!";
+    while (<$fh>) {
+        if (/^([A-Za-z]\w+)\s+(.+)$/) {
+            $config{$1} = $2;
+        }
+        elsif (!/^\s*(?:#.*)?$/) {
+            die "bad line in config $f: $_";
+        }
+    }
+    return $self->{'config'} = \%config;
+}
+
 sub process {
     my ($self) = @_;
     my ($root, $pub, $prv, $red) = @$self{
@@ -98,6 +113,9 @@ sub process {
     }
     else {
         # No such resource
+        local $_ = $@;
+        s/\A|(?<=\n)/|/mgs;
+        print STDERR "ERROR\n$_\n" if length > 1;
         $self->send_response('404 Not Found', \"<html>Not found</html>\n");
     }
 }
@@ -125,10 +143,6 @@ sub check_options {
     @$self{
         qw(root public_dir private_dir redirect_status)
     } = ($root, $pub, $prv, $red);
-}
-
-sub read_config {
-    return {}
 }
 
 sub process_template {
@@ -277,8 +291,8 @@ use base qw(Net::Server::HTTP HTTP::Twixt);
 sub run {
     my ($self) = @_;
     eval "use Net::Server::HTTP; 1" or die;
-    my $config = $self->read_config;
-    $config->{port} ||= 9999;
+    my $config = $self->{'config'} ||= {};
+    $config->{'port'} ||= 9999;
     $self->check_options;
     $self->SUPER::run(
         %$config,
@@ -289,7 +303,7 @@ sub run {
 sub read_request {
     eval "use CGI; 1" or die;
     my ($self) = @_;
-    my $q = $self->{'cgi'} = CGI->new;
+    my $q = $self->{'_cgi'} = CGI->new;
     return $q->path_info || '/';
 }
 
@@ -313,7 +327,7 @@ use base qw(HTTP::Twixt);
 sub read_request {
     eval "use CGI; 1" or die;
     my ($self) = @_;
-    my $q = $self->{'cgi'} = CGI->new;
+    my $q = $self->{'_cgi'} = CGI->new;
     return $q->path_info || '/';
 }
 
