@@ -14,7 +14,17 @@ use Getopt::Long
 
 use constant VERSION => '0.03';
 
+sub usage;
+sub fatal;
+
 my $reqlenlimit = 1<<16;  # Max. 64KB
+my %default_config = (
+    'uri_base' => $ENV{'HTTWIXT_URI_BASE'} || 'http://localhost',
+    'root' => $ENV{'HTTWIXT_ROOT'} || $ENV{'DOCUMENT_ROOT'} || '/var/local/httwixt',
+    'public_dir' => 'public',
+    'private_dir' => 'private',
+    'redirect_status' => '302',
+);
 
 if (!defined caller) {
     # Three modes:
@@ -24,13 +34,10 @@ if (!defined caller) {
     #   - inetd/xinetd
     print(VERSION, "\n"), exit 0
         if @ARGV == 1 && $ARGV[0] eq '--version';
-    my $uri_base = $ENV{'HTTWIXT_URI_BASE'} || 'http://localhost';
-    my $root = $ENV{'HTTWIXT_ROOT'} || $ENV{'DOCUMENT_ROOT'} || '/var/local/httwixt';
-    my ($public_dir, $private_dir) = qw(public private);
-    my $redirect_status  = '302';
     my $config_file;
     my $verbose;
     my $cls;
+    my %cmd_config;
     GetOptions(
         'D|daemon' => sub { $cls = __PACKAGE__ . '::Daemon' },
         'I|inetd'  => sub { $cls = __PACKAGE__ . '::Inetd'  },
@@ -38,12 +45,12 @@ if (!defined caller) {
         'F|fcgi'   => sub { $cls = __PACKAGE__ . '::FCGI'   },
         'T|term'   => sub { $cls = __PACKAGE__ . '::Term'   },
         'c|config-file=s' => \$config_file,
-        'u|uri-base=s' => \$uri_base,
-        'r|root=s' => \$root,
-        'p|public=s' => \$public_dir,
-        'q|private=s' => \$private_dir,
-        's|redirect-status=i' => \$redirect_status,
-        'v|verbose' => \$verbose,
+        'u|uri-base=s' => \$cmd_config{'uri_base'},
+        'r|root=s' => \$cmd_config{'root'},
+        'p|public=s' => \$cmd_config{'public_dir'},
+        'q|private=s' => \$cmd_config{'private_dir'},
+        's|redirect-status=i' => \$cmd_config{'redirect_status'},
+        'v|verbose' => \$cmd_config{'verbose'},
     ) or die;
     $cls ||= 'HTTP::Twixt::' . (
         -t STDERR    ? 'Term'   :
@@ -52,17 +59,19 @@ if (!defined caller) {
         $0 =~ /xtd$/ ? 'Daemon' :
                        'Inetd'
     );
-    my $self = bless {
-        'uri_base' => $uri_base,
-        'root' => $root,
-        'public_dir' => $public_dir,
-        'private_dir' => $private_dir,
-        'redirect_status' => $redirect_status,
-        'verbose' => $verbose,
-    }, $cls;
-    if (defined $config_file) {
-        $config_file = "$root/$config_file" if $config_file !~ m{^/};
-        $self->read_config_file($config_file);
+    my $self = bless { %default_config }, $cls;
+    my $root = $cmd_config{'root'} ||= $default_config{'root'};
+    $config_file = "$root/$config_file"
+        if defined $config_file && $config_file !~ m{^/};
+    $config_file = -e "$root/httwixt.conf" ? "$root/httwixt.conf" : '/dev/null';
+    delete $default_config{'root'};
+    %$self = (
+        %$self,
+        %{ $self->read_config_file($config_file) },
+        %cmd_config,
+    );
+    foreach (qw(public_dir private_dir)) {
+        $self->{$_} = "$root/$self->{$_}" if !m{/};
     }
     $self->run;
 }
@@ -74,17 +83,18 @@ sub new {
 
 sub read_config_file {
     my ($self, $f) = @_;
-    my %config;
     open my $fh, '<', $f or die "open $f: $!";
+    my %config;
     while (<$fh>) {
         if (/^([A-Za-z]\w+)\s+(.+)$/) {
+            usage if !exists $default_config{$1};
             $config{$1} = $2;
         }
         elsif (!/^\s*(?:#.*)?$/) {
             die "bad line in config $f: $_";
         }
     }
-    return $self->{'config'} = \%config;
+    return \%config;
 }
 
 sub process {
